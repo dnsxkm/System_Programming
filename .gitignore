@@ -6,6 +6,10 @@
 a.out
 hello
 helloworld
+fork
+wait
+elf
+mem
 
 # macOS
 .DS_Store
