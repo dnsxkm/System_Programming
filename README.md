@@ -1,37 +1,114 @@
 # System Programming
 
-시스템 프로그래밍 수업 실습 & 복습 노트
-실습 환경: macOS (clang) / 교재 환경: Linux (gcc)
+시스템 프로그래밍 수업의 **실습 코드**와 **복습 노트**를 강의별로 모아 둔 저장소입니다.
 
-## 목차
+## 실습 환경
+
+| 구분 | 실습 (내 환경) | 교재 |
+|---|---|---|
+| OS | macOS | Linux |
+| 컴파일러 | clang (`gcc` 명령으로 호출) | gcc |
+| 실행 파일 형식 | Mach-O | ELF |
+| 라이브러리 확인 | `otool -L` | `ldd` |
+
+> 두 환경에서 결과가 다른 부분은 각 정리 노트에 따로 표시했습니다.
+
+---
+
+## 강의 목록
 
 | 강 | 주제 | 정리 노트 | 실습 |
-|---|---|---|---|
-| 02 | C와 POSIX | [02_C와_POSIX_정리.md](02_C와_POSIX/02_C와_POSIX_정리.md) | [01_컴파일_4단계](02_C와_POSIX/01_컴파일_4단계) · [02_최적화_O2](02_C와_POSIX/02_최적화_O2) |
+|:---:|---|---|---|
+| 02 | C와 POSIX | [📘 정리 노트](02_C와_POSIX/02_C와_POSIX_정리.md) | [컴파일 4단계](02_C와_POSIX/01_컴파일_4단계) · [최적화 -O2](02_C와_POSIX/02_최적화_O2) |
+| 03 | 메모리 표현 | [📘 정리 노트](03_메모리_표현/03_메모리_표현_정리.md) | 노트 12장 `mem.c` |
 
-## 폴더 구조
+---
+
+## 02. C와 POSIX
+
+### 실습 1 — 컴파일 4단계 · [`01_컴파일_4단계/`](02_C와_POSIX/01_컴파일_4단계)
+
+`hello.c` 하나를 단계별로 나누어 컴파일하면서 중간 결과물을 확인했습니다.
 
 ```
-02_C와_POSIX/
-├── 02_C와_POSIX_정리.md     # 개념 & 실습 정리 노트
-├── 01_컴파일_4단계/          # 전처리 → 컴파일 → 어셈블 → 링크
-│   ├── hello.c
-│   └── hello.s              # -O0 어셈블리 (printf 호출)
-└── 02_최적화_O2/             # 최적화 옵션과 어셈블리 관찰
-    ├── helloworld.c
-    └── helloworld.s         # -O2 어셈블리 (printf → puts 치환)
+hello.c ─(-E)→ hello.i ─(-S)→ hello.s ─(-c)→ hello.o ─(링크)→ hello
+ 소스        전처리 결과       어셈블리        목적 파일          실행 파일
 ```
-
-## 빌드
 
 ```bash
-# 01_컴파일_4단계
-gcc -E hello.c -o hello.i && gcc -S hello.c && gcc -c hello.c && gcc -o hello hello.o && ./hello
-
-# 02_최적화_O2
-gcc -Wall -Werror -O2 -std=c99 -S helloworld.c
-gcc -O2 -o helloworld helloworld.c && ./helloworld
-otool -L helloworld   # Linux: ldd helloworld
+gcc -E hello.c -o hello.i   # ① 전처리
+gcc -S hello.c              # ② 컴파일   → hello.s
+gcc -c hello.c              # ③ 어셈블   → hello.o
+gcc -o hello hello.o        # ④ 링크     → hello
+./hello
 ```
 
-> `.o`, `.i`, 실행 파일, `.dSYM`은 `.gitignore`로 제외 (소스에서 재생성 가능)
+- `hello.s` : 최적화 없이(`-O0`) 만든 어셈블리. `printf`를 그대로 호출합니다.
+
+### 실습 2 — 최적화와 동적 링킹 · [`02_최적화_O2/`](02_C와_POSIX/02_최적화_O2)
+
+`-O2`로 컴파일했을 때 어셈블리가 어떻게 바뀌는지, 실행 파일이 어떤 라이브러리에 의존하는지 확인했습니다.
+
+```bash
+gcc -Wall -Werror -O2 -std=c99 -S helloworld.c   # 최적화된 어셈블리
+gcc -O2 -o helloworld helloworld.c && ./helloworld
+otool -L helloworld                              # Linux: ldd helloworld
+```
+
+- `helloworld.s` : `-O2` 결과. 컴파일러가 `printf("...\n")`를 **`puts("...")`로 바꿨습니다.**
+- `otool -L` 결과 `libSystem.B.dylib`에 동적 링킹된 것을 확인했습니다.
+
+### 핵심 정리
+
+- 컴파일은 **전처리 → 컴파일 → 어셈블 → 링크**의 4단계로 진행된다.
+- 컴파일러는 코드를 글자 그대로 옮기지 않고, 결과가 같은 **더 효율적인 코드**로 바꾼다.
+- `printf`의 실제 코드는 `.o` 안에 없고, 실행할 때 **공유 라이브러리**에서 불러온다.
+
+---
+
+## 03. 메모리 표현
+
+메모리에 값이 실제로 어떤 바이트로 저장되는지 `dump_mem` 함수로 직접 찍어 보며 확인했습니다.
+실습 코드(`mem.c`)는 [정리 노트 12장](03_메모리_표현/03_메모리_표현_정리.md#12-실습-코드-모음)에 있습니다.
+
+```bash
+gcc -Wall -std=c99 -o mem mem.c && ./mem
+```
+
+| 실험 | 결과 | 배운 것 |
+|---|---|---|
+| `int 98303` 메모리 덤프 | `ff 7f 01 00` | x86은 **리틀 엔디언** |
+| `char 0x80` → `int` | `-128` (`0xffffff80`) | 작은 signed → 큰 타입은 **부호 확장** |
+| `sizeof(IntList / A / B / Example)` | `16 / 12 / 8 / 12` | **정렬 때문에 패딩**이 생기고, 멤버 순서로 크기가 달라짐 |
+| `(double *)0 + 1` | `0x8` | 포인터 연산은 **타입 크기만큼** 이동 |
+| `name[8]` (uid = `0x41`) | `65` | 배열 범위 밖 접근은 **옆 멤버를 읽음** |
+| `2.0f` / `0.2f` | `0x40000000` / `0x3e4ccccd` | 실수는 **IEEE 754**, `0.2f`는 근사값 |
+
+### 핵심 정리
+
+- 메모리는 타입 없는 **비트/워드**이고, 타입·구조체·부호는 그 비트를 해석하는 **약속**이다.
+- 정수는 **2의 보수**, 실수는 **IEEE 754 (부호 | 지수 | 가수)** 로 저장된다.
+- `malloc`으로 받은 메모리는 `free` 후 포인터를 `NULL`로 만들어 **댕글링 포인터**를 막는다.
+
+---
+
+## 저장소 구조
+
+```
+System_Programming/
+├── README.md
+├── .gitignore
+├── 02_C와_POSIX/
+│   ├── 02_C와_POSIX_정리.md       # 개념 & 실습 정리 노트
+│   ├── 01_컴파일_4단계/
+│   │   ├── hello.c
+│   │   └── hello.s                # -O0 어셈블리
+│   └── 02_최적화_O2/
+│       ├── helloworld.c
+│       └── helloworld.s           # -O2 어셈블리
+└── 03_메모리_표현/
+    └── 03_메모리_표현_정리.md     # 개념 & 실습 정리 노트 (mem.c 포함)
+```
+
+- 폴더 규칙: `NN_강의주제/` 아래에 정리 노트와 `NN_실습명/` 폴더를 둡니다.
+- 빌드 결과물(`.o`, `.i`, 실행 파일, `.dSYM`)은 소스로 다시 만들 수 있어서 `.gitignore`로 제외했습니다.
