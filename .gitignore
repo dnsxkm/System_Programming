@@ -1,0 +1,11 @@
+# 빌드 산출물 (소스에서 언제든 다시 생성 가능)
+*.o
+*.i
+*.dSYM/
+*.out
+a.out
+hello
+helloworld
+
+# macOS
+.DS_Store
