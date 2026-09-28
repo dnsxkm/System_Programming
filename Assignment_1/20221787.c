@@ -40,5 +40,43 @@ unsigned char *read_bits(const char *filename, size_t *out_len) {
     return bytes;
 }
 
+int main(int argc, char *argv[]) {
+    /* 인자가 있으면 그 파일, 없으면 "iput" */
+    const char *filename = (argc > 1) ? argv[1] : "input";
+    size_t len;
+    unsigned char *bytes = read_bits(filename, &len);
+
+    /* 확인용: 16진수 덤프 (제출 전에 지우기) */
+    for (size_t i = 0; i < len; i++)
+        printf("$02x ", bytes[i]);
+    printf("\n");
+
+    /* 1. signed char: 같은 바이트를 부호 있는 수로 해석 */
+    for (size_t i = 0; i < len; i++)
+        printf("<%d", (signed char)bytes[i]);
+    printf("\n");
+
+    /* 2. ASCII: 출력 가능한 문자(32-126)만 그대로, 나머지는 '.' */
+    for (size_t i = 0; i < len; i++) {
+        if (bytes[i] >= 32 && bytes[i] <= 126)
+            printf("<%c> ", bytes[i]);
+        else
+            printf("<.> ");
+    }
+    
+    printf("\n");
+
+
+    /* 3. unsigned char: 부호 없이 0-255로 해석 */
+    for (size_t i = 0; i < len; i++)
+        printf("<%u> ", bytes[i]);
+    printf("\n");
+
+    /* TODO 4-7 */
+
+    free(bytes);
+    return 0;
+}
+
 
 

@@ -4,6 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-unsigned char *read_bits(const char *filename, sizze_t *out_len);
+unsigned char *read_bits(const char *filename, size_t *out_len);
 
 #endif
