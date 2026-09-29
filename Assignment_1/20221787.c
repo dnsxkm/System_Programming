@@ -12,7 +12,7 @@ unsigned char *read_bits(const char *filename, size_t *out_len) {
         perror(filename);
         exit(1);
     }
-    
+
     size_t cap = 16;                            // 배열 용량 (처음엔 16바이트)
     size_t len = 0;                             // 실제로 채운 바이트 수
     unsigned char *bytes = malloc(cap);
@@ -112,3 +112,4 @@ int main(int argc, char *argv[]) {
     free(bytes);                                // 모든 출력이 끝난 뒤 해제
     return 0;
 }
+
