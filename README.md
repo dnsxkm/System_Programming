@@ -180,12 +180,12 @@ System_Programming/
 │       └── helloworld.s           # -O2 어셈블리
 ├── 03_메모리_표현/
 │   └── 03_메모리_표현_정리.md     # 개념 & 실습 정리 노트 (mem.c 포함)
-└── 04_프로세스/
-    ├── 04_프로세스_정리.md        # 개념 & 실습 정리 노트
-    ├── elf.c                      # 섹션별 변수 배치
-    ├── fork.c                     # 프로세스 생성
-    ├── wait.c                     # waitpid로 자식 기다리기
-    └── 현재_작업_디렉터리.c       # getcwd / chdir
+├── 04_프로세스/
+│   ├── 04_프로세스_정리.md        # 개념 & 실습 정리 노트
+│   ├── elf.c                      # 섹션별 변수 배치
+│   ├── fork.c                     # 프로세스 생성
+│   ├── wait.c                     # waitpid로 자식 기다리기
+│   └── 현재_작업_디렉터리.c       # getcwd / chdir
 └── Assignment_1/                  # 과제 1
     ├── 20221787.c                 # read_bits, le32/le64, main
     ├── 20221787.h

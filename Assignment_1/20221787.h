@@ -3,7 +3,7 @@
 
 #include <stdio.h>                  // 2. 표준 헤더를 한곳에 모음 -> .c는 이 헤더 하나만 include
 #include <stdlib.h>
-#include <stdint.h>     // uint32_t, int32_t . uint64_t (크기가 고정된 정수 타입 )
+#include <stdint.h>     // uint32_t, int32_t, uint64_t (크기가 고정된 정수 타입)
 #include <string.h>     // memcpy
 
 /* '0'/'1' 문자 파일을 읽어 바이트 배열로 반환 (바이트 개수는 out_len에 저장) */
