@@ -28,6 +28,7 @@
 | 과제 | 주제 | 폴더 |
 |:---:|---|---|
 | 1 | 비트 문자열을 7가지 C 타입으로 해석 | [`Assignment_1/`](Assignment_1) |
+| 2 | ELF 파일의 `.rodata` 문자열 수정 (`software` → `hackers!`) | [`Assignment_2/`](Assignment_2) |
 
 ---
 
@@ -164,6 +165,53 @@ make clean
 
 ---
 
+## 과제 2 — ELF `.rodata` 문자열 수정 · [`Assignment_2/`](Assignment_2)
+
+ELF 파일인지 검사한 뒤 `.rodata` 섹션에서 `"software"`를 찾아 같은 자리에 `"hackers!"`를 덮어씁니다. 수정한 파일을 다시 실행하면 바뀐 문자열이 출력됩니다.
+`<elf.h>`가 필요해서 **Linux x86-64**에서 빌드합니다. (macOS에서는 Docker `--platform linux/amd64` 컨테이너로 테스트했습니다.)
+
+```bash
+cd Assignment_2
+make                          # → 실행 파일 20221787
+gcc -o test test.c && ./test  # Hello the school of software
+./20221787 ./test             # ELF 정보 출력 + .rodata 수정
+./test                        # Hello the school of hackers!
+make clean
+```
+
+| 단계 | 함수 | 방법 |
+|:---:|---|---|
+| 1 | `read_file` | `open(O_RDWR)` → `lseek`로 크기 → `read`를 반복해 전부 읽음 |
+| 2 | `is_elf` | 크기 ≥ 64, 매직 `7F 'E' 'L' 'F'`, `ELFCLASS64` 확인 |
+| 3 | `find_section` | `e_shoff`로 섹션 헤더 테이블 → `.shstrtab + sh_name`으로 이름 비교 |
+| 4 | `patch_rodata` | `.rodata` 범위 안에서 `memcmp`로 검색 → `pwrite(sh_offset + i)`로 8바이트만 기록 |
+
+실행 결과 (`test`):
+
+```
+ELF Magic     : 7F 45 4C 46
+Class         : ELF64
+Data          : 2's complement, little endian
+Machine       : AMD X86-64
+Entry point   : 0x1060
+Section count : 31
+
+.rodata section info
+   File Offset = 0x00002000
+          Size = 0x00000021
+
+   "software" -> "hackers!" at file offset 0x00002018
+1 string(s) modified
+```
+
+- 두 문자열 길이가 같아서(8바이트) 다른 섹션 오프셋이나 코드의 주소 참조가 바뀌지 않습니다. `\0`까지 9바이트를 쓰면 뒤에 이어지는 문자열이 잘리므로 8바이트만 씁니다.
+- `.rodata`에는 `\0`이 섞여 있어(맨 앞 `01 00 02 00`) `strstr` 대신 `memcmp`로 섹션 크기만큼 검색합니다.
+- 헤더가 가리키는 모든 범위가 파일 안에 있는지 검사해서, 잘리거나 망가진 파일에서도 버퍼 밖을 읽지 않습니다.
+- 제공된 `editro`는 Size를 `0x%08ld`(10진수)로 출력해 `0x00000033`이 나오지만 실제 크기는 33바이트 = `0x21`입니다. `%08lX`로 고쳤습니다.
+- 개념 정리: [`ELF_스터디노트.html`](Assignment_2/ELF_스터디노트.html) — ELF 헤더 바이트 해석, 섹션 이름 찾기, 섹션 vs 세그먼트, 5주차 링킹 · 6주차 Unix I/O 요약, 확인 문제 25개 (브라우저로 열기)
+
+---
+
 ## 저장소 구조
 
 ```
@@ -186,11 +234,17 @@ System_Programming/
 │   ├── fork.c                     # 프로세스 생성
 │   ├── wait.c                     # waitpid로 자식 기다리기
 │   └── 현재_작업_디렉터리.c       # getcwd / chdir
-└── Assignment_1/                  # 과제 1
-    ├── 20221787.c                 # read_bits, le32/le64, main
+├── Assignment_1/                  # 과제 1
+│   ├── 20221787.c                 # read_bits, le32/le64, main
+│   ├── 20221787.h
+│   ├── Makefile
+│   └── input                      # 예제 입력 (비트 문자열)
+└── Assignment_2/                  # 과제 2
+    ├── 20221787.c                 # is_elf, find_section, patch_rodata, main
     ├── 20221787.h
     ├── Makefile
-    └── input                      # 예제 입력 (비트 문자열)
+    ├── test.c                     # 수정 대상 예제 프로그램
+    └── ELF_스터디노트.html        # 개념 & 시험 대비 정리
 ```
 
 - 폴더 규칙: `NN_강의주제/` 아래에 정리 노트와 `NN_실습명/` 폴더를 두고, 과제는 `Assignment_N/`에 둡니다.

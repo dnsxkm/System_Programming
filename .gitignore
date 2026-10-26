@@ -16,3 +16,8 @@ mem
 
 # 과제 실행 파일
 Assignment_1/20221787
+
+# 과제 2 실행 파일과 테스트용 ELF
+Assignment_2/20221787
+Assignment_2/test
+Assignment_2/test.orig

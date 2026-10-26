@@ -1,0 +1,710 @@
+<title>ELF 해부 노트</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a printed spec sheet — sticky table of contents on the left, one reading column, hex dumps as the "figures" */
+:root {
+  --paper: #f5f6f3;
+  --sheet: #ffffff;
+  --ink: #1d2430;
+  --muted: #5d6675;
+  --rule: #d8dce2;
+  --accent: #1f5fbf;
+  --accent-soft: #e3ecfa;
+  --hl: #ffe08a;
+  --hl-ink: #3b2d00;
+  --good: #1f7a4a;
+  --bad: #b3361e;
+  /* byte-field colors for hex figures */
+  --f1: #f7d9d4; --f2: #d7ecdc; --f3: #dbe3f7; --f4: #f4e6c8; --f5: #e8dcf3; --f6: #d5eef0;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #12161c; --sheet: #191e26; --ink: #e3e7ee; --muted: #9aa3b2; --rule: #2c333e;
+    --accent: #7eaaf0; --accent-soft: #1f2b40; --hl: #6b5512; --hl-ink: #fff3cc; --good: #5fc48d; --bad: #f08a72;
+    --f1: #4a2a26; --f2: #213d2b; --f3: #26304d; --f4: #45391d; --f5: #362848; --f6: #1d3e42;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #12161c; --sheet: #191e26; --ink: #e3e7ee; --muted: #9aa3b2; --rule: #2c333e;
+  --accent: #7eaaf0; --accent-soft: #1f2b40; --hl: #6b5512; --hl-ink: #fff3cc; --good: #5fc48d; --bad: #f08a72;
+  --f1: #4a2a26; --f2: #213d2b; --f3: #26304d; --f4: #45391d; --f5: #362848; --f6: #1d3e42;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.7;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 32px 64px;
+}
+.wrap { max-width: 1120px; margin: 0 auto; display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 40px; }
+@media (max-width: 860px) { .wrap { grid-template-columns: minmax(0, 1fr); } nav.toc { display: none; } }
+
+nav.toc { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 24px); align-self: start; font-size: 14px; }
+nav.toc .label { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: t; }
+nav.toc a { display: block; padding: 4px 10px; border-left: 2px solid var(--rule); color: var(--muted); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); border-left-color: var(--accent); outline: none; }
+
+main { min-width: 0; }
+header.top { padding-bottom: 28px; border-bottom: 1px solid var(--rule); margin-bottom: 8px; }
+.eyebrow { font-family: var(--font-mono); font-size: 13px; color: var(--accent); letter-spacing: .04em; }
+h1 { font-size: clamp(30px, 5vw, 44px); line-height: 1.2; margin: 6px 0 12px; text-wrap: balance; font-weight: 700; }
+h1 .mag { font-family: var(--font-mono); font-weight: 600; background: var(--hl); color: var(--hl-ink); padding: 0 .2em; border-radius: 3px; }
+.lede { color: var(--muted); max-width: 62ch; margin: 0; }
+.meta { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 16px; font-size: 13px; color: var(--muted); font-family: var(--font-mono); }
+
+section { padding-top: 44px; scroll-margin-top: 16px; }
+h2 { font-size: 24px; line-height: 1.35; margin: 0 0 4px; text-wrap: balance; display: flex; gap: 12px; align-items: baseline; }
+h2 .n { font-family: var(--font-mono); font-size: 14px; color: var(--accent); font-weight: 600; }
+h3 { font-size: 17px; margin: 28px 0 6px; text-wrap: balance; }
+p, li { max-width: 68ch; }
+p { margin: 10px 0; }
+ul, ol { padding-left: 1.3em; margin: 10px 0; }
+li { margin: 4px 0; }
+code, .mono { font-family: var(--font-mono); font-size: .88em; }
+:not(pre) > code { background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+a { color: var(--accent); }
+strong { font-weight: 700; }
+
+.callout { border: 1px solid var(--rule); background: var(--sheet); border-radius: 8px; padding: 14px 18px; margin: 16px 0; max-width: 72ch; }
+.callout .k { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-weight: 700; display: block; margin-bottom: 2px; }
+.callout.warn .k { color: var(--bad); }
+.callout p { margin: 4px 0; }
+
+.figure { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; margin: 18px 0; overflow: hidden; }
+.figure .cap { font-size: 13px; color: var(--muted); padding: 10px 16px; border-top: 1px solid var(--rule); }
+.scroll { overflow-x: auto; }
+pre { margin: 0; padding: 16px; font-family: var(--font-mono); font-size: 13.5px; line-height: 1.6; color: var(--ink); }
+pre .c { color: var(--muted); }
+pre .k { color: var(--accent); font-weight: 600; }
+pre .h { background: var(--hl); color: var(--hl-ink); border-radius: 2px; }
+
+/* Flow steps */
+.flow { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 18px 0; padding: 0; list-style: none; counter-reset: s; }
+.flow li { margin: 0; background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 12px 14px; font-size: 14px; line-height: 1.5; counter-increment: s; }
+.flow li::before { content: counter(s); font-family: var(--font-mono); font-weight: 600; color: var(--accent); display: block; font-size: 13px; }
+.flow li b { display: block; font-size: 15px; }
+.flow li code { font-size: 12px; }
+
+/* File map */
+.map { display: grid; gap: 3px; padding: 16px; font-size: 13.5px; }
+.map .row { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 12px; align-items: stretch; }
+.map .off { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); text-align: right; padding-top: 6px; }
+.map .blk { border-radius: 5px; padding: 6px 12px; border: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; min-width: 0; }
+.map .blk .nm { font-family: var(--font-mono); font-weight: 600; }
+.map .blk .ds { color: var(--muted); font-size: 13px; }
+.map .gap { color: var(--muted); font-size: 12px; padding-left: 104px; font-family: var(--font-mono); }
+.b1 { background: var(--f1); } .b2 { background: var(--f2); } .b3 { background: var(--f3); }
+.b4 { background: var(--f4); } .b5 { background: var(--f5); } .b6 { background: var(--f6); }
+.map .blk.star { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Hex viewer */
+.hex { font-family: var(--font-mono); font-size: 14px; padding: 16px; display: grid; gap: 4px; min-width: 620px; }
+.hex .line { display: grid; grid-template-columns: 52px repeat(16, 30px) 1fr; align-items: center; gap: 2px; }
+.hex .addr { color: var(--muted); font-size: 12.5px; }
+.hex .b { text-align: center; padding: 3px 0; border-radius: 3px; cursor: pointer; border: 1px solid transparent; background: transparent; font: inherit; color: var(--ink); }
+.hex .b:focus-visible { outline: 2px solid var(--accent); }
+.hex .b.sel { border-color: var(--accent); font-weight: 600; }
+.hex .asc { padding-left: 12px; color: var(--muted); white-space: pre; font-size: 13px; }
+.hex .b.swap { background: var(--hl); color: var(--hl-ink); }
+.field-panel { border-top: 1px solid var(--rule); padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 6px 24px; font-size: 14px; }
+.field-panel .fname { font-family: var(--font-mono); font-weight: 600; font-size: 15px; grid-column: 1 / -1; }
+.field-panel .kv { color: var(--muted); }
+.field-panel .kv b { color: var(--ink); font-family: var(--font-mono); font-weight: 600; }
+.field-panel .why { grid-column: 1 / -1; }
+@media (max-width: 560px) { .field-panel { grid-template-columns: minmax(0, 1fr); } }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--rule); align-items: center; }
+button.btn { font: inherit; font-size: 14px; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: var(--sheet); cursor: pointer; }
+button.btn.ghost { background: transparent; color: var(--accent); }
+button.btn:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.out { font-family: var(--font-mono); font-size: 13.5px; padding: 10px 16px; border-top: 1px solid var(--rule); }
+.out .prompt { color: var(--muted); }
+
+/* Tables */
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+td code { white-space: nowrap; }
+.tbl { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; overflow-x: auto; margin: 16px 0; }
+.tbl table { min-width: 560px; }
+
+/* Code walkthrough */
+details.code { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; margin: 12px 0; }
+details.code summary { cursor: pointer; padding: 12px 16px; font-weight: 700; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+details.code summary .fn { font-family: var(--font-mono); color: var(--accent); }
+details.code summary .s { font-weight: 400; color: var(--muted); font-size: 14px; }
+details.code[open] summary { border-bottom: 1px solid var(--rule); }
+details.code .body { padding: 4px 16px 14px; }
+details.code pre { padding: 12px 0; }
+
+/* Quiz */
+.quiz-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin: 14px 0; }
+.score { font-family: var(--font-mono); font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.quiz { display: grid; gap: 10px; }
+.q { background: var(--sheet); border: 1px solid var(--rule); border-radius: 8px; padding: 14px 16px; }
+.q .qt { font-weight: 700; display: flex; gap: 10px; }
+.q .qt .qn { font-family: var(--font-mono); color: var(--accent); flex: none; }
+.q .tag { font-size: 12px; color: var(--muted); font-family: var(--font-mono); }
+.q .ans { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--rule); }
+.q .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.q .acts button { font: inherit; font-size: 13px; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--rule); background: transparent; color: var(--ink); cursor: pointer; }
+.q .acts button:focus-visible { outline: 2px solid var(--accent); }
+.q .acts button.ok[aria-pressed="true"] { border-color: var(--good); color: var(--good); font-weight: 700; }
+.q .acts button.no[aria-pressed="true"] { border-color: var(--bad); color: var(--bad); font-weight: 700; }
+.q.done-ok { border-left: 4px solid var(--good); }
+.q.done-no { border-left: 4px solid var(--bad); }
+
+footer { margin-top: 56px; padding-top: 16px; border-top: 1px solid var(--rule); font-size: 13px; color: var(--muted); }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="목차">
+  <div class="label">목차</div>
+  <ol>
+    <li><a href="#flow">과제 한눈에 보기</a></li>
+    <li><a href="#layout">ELF 파일 지도</a></li>
+    <li><a href="#header">ELF 헤더 64바이트</a></li>
+    <li><a href="#names">섹션 이름 찾기</a></li>
+    <li><a href="#rodata">.rodata 패치</a></li>
+    <li><a href="#code">내 코드 해설</a></li>
+    <li><a href="#memory">섹션 vs 세그먼트</a></li>
+    <li><a href="#linking">링킹 핵심</a></li>
+    <li><a href="#io">Unix I/O 핵심</a></li>
+    <li><a href="#traps">시험 함정 모음</a></li>
+    <li><a href="#quiz">확인 문제</a></li>
+  </ol>
+</nav>
+
+<main>
+<header class="top">
+  <div class="eyebrow">시스템프로그래밍 · 과제 #2 · 기말 대비</div>
+  <h1><span class="mag">7F 45 4C 46</span> 부터 읽는 ELF 해부 노트</h1>
+  <p class="lede">과제에 쓰인 <code>test</code> 바이너리의 실제 바이트를 그대로 펼쳐 놓고, ELF 구조 → 과제 코드 → 링킹·I/O 개념을 한 줄로 이었습니다. 모든 오프셋과 값은 x86-64 리눅스에서 <code>readelf</code>, <code>xxd</code>로 직접 확인한 값입니다.</p>
+  <div class="meta"><span>제출물: 20221787.zip</span><span>대상: test (ELF64, PIE, x86-64)</span><span>강의: 5주차 링킹 · 6주차 ELF/입출력</span></div>
+</header>
+
+<section id="flow">
+  <h2><span class="n">01</span>과제 한눈에 보기</h2>
+  <p>과제는 실행 파일 안의 문자열 상수를 <strong>디스크 위에서 직접</strong> 고치는 것입니다. 프로그램이 하는 일은 다섯 단계입니다.</p>
+  <ol class="flow">
+    <li><b>파일 열기</b><code>open(path, O_RDWR)</code> 읽고 쓰기 둘 다</li>
+    <li><b>통째로 읽기</b><code>lseek</code>로 크기 → <code>read</code> 반복</li>
+    <li><b>ELF 검사</b>크기 ≥ 64, 매직 <code>7F 'E' 'L' 'F'</code>, ELF64</li>
+    <li><b>.rodata 찾기</b><code>e_shoff</code> → 섹션 헤더 → <code>shstrtab + sh_name</code></li>
+    <li><b>덮어쓰기</b>"software" 위치에 <code>pwrite</code>로 "hackers!" 8바이트</li>
+  </ol>
+  <div class="figure">
+    <div class="scroll"><pre><span class="c">$</span> ./test
+Hello the school of software
+<span class="c">$</span> ./20221787 ./test
+ELF Magic     : 7F 45 4C 46
+Class         : ELF64
+Data          : 2's complement, little endian
+Machine       : AMD X86-64
+Entry point   : 0x1060
+Section count : 31
+
+.rodata section info
+   File Offset = 0x00002000
+          Size = 0x00000021
+
+   "software" -> "hackers!" at file offset 0x00002018
+1 string(s) modified
+<span class="c">$</span> ./test
+Hello the school of <span class="h">hackers!</span>
+<span class="c">$</span> cmp -l test.orig test | wc -l
+8                      <span class="c"># 정확히 8바이트만 바뀜</span></pre></div>
+    <div class="cap">Docker(linux/amd64, gcc 13)에서 실제로 돌린 결과. 같은 파일에 한 번 더 실행하면 <code>"software" not found in .rodata</code>가 나옵니다.</div>
+  </div>
+</section>
+
+<section id="layout">
+  <h2><span class="n">02</span>ELF 파일 지도</h2>
+  <p>ELF 파일은 <strong>헤더 → (프로그램 헤더 테이블) → 섹션 내용들 → 섹션 헤더 테이블</strong> 순서로 놓입니다. 헤더가 지도 역할을 해서, 나머지 위치는 전부 헤더에서 출발해 찾아갑니다. 아래는 과제 <code>test</code>(15,960바이트)의 실제 배치입니다.</p>
+  <div class="figure">
+    <div class="scroll"><div class="map" style="min-width:460px">
+      <div class="row"><div class="off">0x0000</div><div class="blk b1"><span class="nm">ELF Header</span><span class="ds">64 B · 모든 위치의 출발점</span></div></div>
+      <div class="row"><div class="off">0x0040</div><div class="blk b6"><span class="nm">Program Header Table</span><span class="ds">56 B × 13 · 실행(로더)용</span></div></div>
+      <div class="row"><div class="off">0x0318</div><div class="blk b5"><span class="nm">.interp .dynsym .dynstr .rela…</span><span class="ds">동적 링킹 정보</span></div></div>
+      <div class="row"><div class="off">0x1060</div><div class="blk b2"><span class="nm">.text</span><span class="ds">0x112 B · 기계어, entry = 0x1060</span></div></div>
+      <div class="row"><div class="off">0x2000</div><div class="blk b4 star"><span class="nm">.rodata</span><span class="ds">0x21 B · 문자열 상수 ← 과제 대상</span></div></div>
+      <div class="row"><div class="off">0x2db8</div><div class="blk b5"><span class="nm">.init_array .dynamic .got</span><span class="ds">RW 데이터</span></div></div>
+      <div class="row"><div class="off">0x3000</div><div class="blk b2"><span class="nm">.data</span><span class="ds">0x10 B · 초기화된 전역변수 (.bss는 파일 공간 0)</span></div></div>
+      <div class="row"><div class="off">0x3040</div><div class="blk b5"><span class="nm">.symtab .strtab</span><span class="ds">심볼 테이블과 심볼 이름</span></div></div>
+      <div class="row"><div class="off">0x357a</div><div class="blk b3"><span class="nm">.shstrtab</span><span class="ds">0x11a B · 섹션 "이름" 문자열 모음</span></div></div>
+      <div class="row"><div class="off">0x3698</div><div class="blk b1"><span class="nm">Section Header Table</span><span class="ds">64 B × 31 = 0x7C0 B → 파일 끝 0x3E58</span></div></div>
+    </div></div>
+    <div class="cap"><code>readelf -S -W test</code> 결과에서 뽑은 오프셋. 0x3698 + 31×64 = 15,960 = 파일 크기와 정확히 일치합니다.</div>
+  </div>
+  <div class="callout"><span class="k">기억할 것</span>
+    <p>세 가지 ELF 파일 종류(<code>.o</code> 재배치 가능, <code>a.out</code> 실행, <code>.so</code> 공유)는 모두 같은 형식입니다. <strong>섹션 헤더 테이블은 링킹용</strong>(재배치 파일에 필수), <strong>프로그램 헤더 테이블은 실행용</strong>(실행 파일에 필수)입니다.</p>
+  </div>
+</section>
+
+<section id="header">
+  <h2><span class="n">03</span>ELF 헤더 64바이트 직접 읽기</h2>
+  <p>아래는 <code>test</code>의 첫 64바이트입니다. 바이트를 누르면 어느 필드인지, 리틀 엔디언으로 어떻게 읽히는지 나옵니다. 처음엔 <code>e_shoff</code>가 선택되어 있습니다.</p>
+  <div class="figure">
+    <div class="scroll"><div class="hex" id="hdrHex"></div></div>
+    <div class="field-panel" id="hdrPanel" aria-live="polite"></div>
+  </div>
+  <div class="callout"><span class="k">리틀 엔디언 읽는 법</span>
+    <p>파일에 <code>98 36 00 00 00 00 00 00</code>로 저장된 8바이트는 <strong>뒤에서부터</strong> 읽어 <code>0x0000000000003698</code>입니다. x86-64는 낮은 자리 바이트를 낮은 주소에 둡니다. 그래서 C에서 <code>hdr-&gt;e_shoff</code>로 구조체를 덮어 읽으면 변환 없이 바로 0x3698이 나옵니다.</p>
+  </div>
+</section>
+
+<section id="names">
+  <h2><span class="n">04</span>섹션 이름 찾기: shstrtab + sh_name</h2>
+  <p>가장 많이 헷갈리는 부분입니다. 섹션 헤더에는 이름 문자열이 없고, <code>sh_name</code>이라는 <strong>오프셋 숫자</strong>만 있습니다. 이름은 <code>.shstrtab</code> 섹션에 <code>\0</code>으로 구분되어 모여 있습니다.</p>
+  <div class="figure">
+    <div class="scroll"><pre><span class="c">// ① 헤더에서 섹션 헤더 테이블 위치</span>
+sht      = buffer + hdr-&gt;e_shoff;                 <span class="c">// 0x3698</span>
+<span class="c">// ② e_shstrndx(=30)번 섹션이 .shstrtab</span>
+shstrtab = buffer + sht[hdr-&gt;e_shstrndx].sh_offset; <span class="c">// 0x357a</span>
+<span class="c">// ③ i번 섹션의 이름 = shstrtab + sh_name</span>
+name     = shstrtab + sht[i].sh_name;
+
+<span class="c">// 18번 섹션 헤더 (파일 0x3698 + 18×64 = 0x3b18)</span>
+<span class="h">c5 00 00 00</span> 01 00 00 00  02 00 00 00 00 00 00 00   <span class="c">sh_name=0xc5  sh_type=PROGBITS  sh_flags=A</span>
+00 20 00 00 00 00 00 00  <span class="h">00 20 00 00 00 00 00 00</span>   <span class="c">sh_addr=0x2000  sh_offset=0x2000</span>
+<span class="h">21 00 00 00 00 00 00 00</span>  00 00 00 00 00 00 00 00   <span class="c">sh_size=0x21</span>
+
+<span class="c">// .shstrtab(0x357a) + 0xc5 = 0x363f 에 있는 문자열</span>
+"<span class="k">.rodata</span>\0"   <span class="c">→ strcmp(name, ".rodata") == 0 이므로 찾음</span></pre></div>
+    <div class="cap">실제 <code>test</code> 파일의 바이트. <code>.shstrtab</code> 자신도 섹션이므로 자기 이름(<code>sh_name=0x11</code> → ".shstrtab")을 자기 안에 갖고 있습니다.</div>
+  </div>
+  <div class="callout"><span class="k">덤으로 알아 두기</span>
+    <p>이 파일의 <code>.shstrtab</code>에는 <code>".plt"</code>라는 문자열이 따로 없습니다. 링커가 <code>".rela.plt"</code>의 꼬리를 공유시켜 <code>.plt</code>의 <code>sh_name</code>이 그 문자열 중간을 가리키게 했기 때문입니다. 이름을 "오프셋"으로 두는 설계 덕분에 가능한 절약입니다.</p>
+  </div>
+</section>
+
+<section id="rodata">
+  <h2><span class="n">05</span>.rodata 패치 시뮬레이터</h2>
+  <p><code>.rodata</code>는 파일 오프셋 0x2000부터 0x21(=33)바이트입니다. 버튼을 눌러 프로그램이 바꾸는 8바이트를 확인해 보세요.</p>
+  <div class="figure">
+    <div class="toolbar">
+      <button class="btn" id="patchBtn" type="button">패치 실행</button>
+      <button class="btn ghost" id="resetBtn" type="button">원래대로</button>
+    </div>
+    <div class="scroll"><div class="hex" id="roHex"></div></div>
+    <div class="out" id="roOut"><span class="prompt">$ ./test</span><br>Hello the school of software</div>
+  </div>
+  <h3>바이트에 숨은 사실 세 가지</h3>
+  <ul>
+    <li><strong>앞 4바이트 <code>01 00 02 00</code></strong>은 문자열이 아니라 libc의 <code>_IO_stdin_used</code> 상수입니다. 그래서 문자열은 0x2004에서 시작하고, "software"는 0x2004 + 20 = <strong>0x2018</strong>에 있습니다.</li>
+    <li><strong>문자열 끝에 <code>\n</code>이 없습니다.</strong> 원본 C 코드는 <code>printf("Hello the school of software\n")</code>지만, gcc가 이를 <code>puts("Hello the school of software")</code>로 바꿔 줄바꿈을 puts가 붙입니다. <code>objdump -d</code>로 보면 <code>main</code>이 <code>puts@plt</code>를 호출합니다.</li>
+    <li><strong>길이가 같아서 덮어쓰기만 하면 됩니다.</strong> "software"와 "hackers!"는 둘 다 8바이트입니다. 길이가 다르면 뒤쪽 데이터 오프셋과 코드 안의 주소 참조(RIP 상대 주소 <code>lea 0xea1(%rip)</code>)가 전부 틀어집니다.</li>
+  </ul>
+  <div class="callout warn"><span class="k">함정</span>
+    <p><code>"hackers!"</code>를 쓸 때 <code>sizeof("hackers!")</code>(=9)를 쓰면 <code>\0</code>까지 9바이트를 씁니다. 문자열이 "software"로 끝나는 경우엔 우연히 괜찮지만, "software engineering"처럼 중간에 있으면 <code>"hackers!\0engineering"</code>이 되어 문자열이 잘립니다. 그래서 코드는 <code>strlen</code>(=8)만 씁니다.</p>
+  </div>
+</section>
+
+<section id="code">
+  <h2><span class="n">06</span>내 코드 해설 (20221787.c)</h2>
+  <p>제공된 editro를 뼈대로 쓰고, 과제 요구(ELF 검사 함수, .rodata 수정)와 안전장치를 더했습니다. 함수별로 열어 보세요.</p>
+
+  <details class="code" open>
+    <summary><span class="fn">is_elf()</span><span class="s">과제 요구 ①: 진짜 ELF인지 검사</span></summary>
+    <div class="body">
+      <div class="scroll"><pre><span class="k">if</span> (length &lt; (off_t)sizeof(Elf64_Ehdr))        <span class="c">// 64B보다 작으면 헤더조차 못 읽음</span>
+    <span class="k">return</span> 0;
+<span class="k">if</span> (memcmp(hdr-&gt;e_ident, ELFMAG, SELFMAG) != 0) <span class="c">// "\177ELF", 4바이트 비교</span>
+    <span class="k">return</span> 0;
+<span class="k">if</span> (hdr-&gt;e_ident[EI_CLASS] != ELFCLASS64)      <span class="c">// Elf64_* 구조체로 읽으므로 64비트만</span>
+    <span class="k">return</span> 0;</pre></div>
+      <p>순서가 중요합니다. 크기를 먼저 보지 않으면 5바이트짜리 텍스트 파일에서 헤더를 읽다가 버퍼 밖을 읽습니다. 32비트 ELF는 <code>Elf32_Ehdr</code>가 52바이트이고 필드 크기가 달라서, 64비트 구조체로 읽으면 엉뚱한 값이 나옵니다.</p>
+    </div>
+  </details>
+
+  <details class="code">
+    <summary><span class="fn">read_file()</span><span class="s">파일을 통째로 메모리에</span></summary>
+    <div class="body">
+      <div class="scroll"><pre>*length = lseek(fd, 0, SEEK_END);   <span class="c">// 끝으로 이동한 위치 = 파일 크기</span>
+lseek(fd, 0, SEEK_SET);             <span class="c">// 다시 처음으로</span>
+<span class="k">while</span> (total &lt; *length) {
+    n = read(fd, buffer + total, *length - total);
+    <span class="k">if</span> (n &lt;= 0) ...                   <span class="c">// 0 = EOF, -1 = 에러</span>
+    total += n;                      <span class="c">// read는 요청보다 적게 읽을 수 있음(short count)</span>
+}</pre></div>
+      <p>원본 editro는 <code>read</code>를 한 번만 부르고, malloc 실패도 확인하지 않았습니다. 6주차 슬라이드의 read 반환값 규칙(0: EOF, &gt;0: 읽은 바이트, &lt;0: 에러)을 그대로 적용했습니다.</p>
+    </div>
+  </details>
+
+  <details class="code">
+    <summary><span class="fn">find_section()</span><span class="s">.rodata 섹션 헤더 찾기 + 범위 검사</span></summary>
+    <div class="body">
+      <div class="scroll"><pre><span class="k">static int</span> in_file(Elf64_Off offset, Elf64_Xword size, off_t length)
+{
+    <span class="k">return</span> offset &lt;= length &amp;&amp; size &lt;= length - offset;  <span class="c">// offset+size 오버플로 방지</span>
+}
+...
+<span class="k">if</span> (!in_file(hdr-&gt;e_shoff, e_shnum * sizeof(Elf64_Shdr), length)) <span class="k">return</span> NULL;
+<span class="k">if</span> (hdr-&gt;e_shstrndx &gt;= hdr-&gt;e_shnum) <span class="k">return</span> NULL;
+<span class="k">for</span> (i = 0; i &lt; hdr-&gt;e_shnum; i++)
+    <span class="k">if</span> (strcmp(&amp;shstrtab[sht[i].sh_name], name) == 0) <span class="k">return</span> &amp;sht[i];</pre></div>
+      <p>매직만 맞고 내용이 망가진 파일(잘린 파일 등)이 들어와도 버퍼 밖을 읽지 않도록, 헤더가 가리키는 모든 범위가 파일 안에 있는지 확인합니다. <code>offset + size &gt; length</code>로 쓰면 큰 값에서 덧셈이 넘쳐 검사를 통과할 수 있어 뺄셈 형태로 썼습니다.</p>
+    </div>
+  </details>
+
+  <details class="code">
+    <summary><span class="fn">patch_rodata()</span><span class="s">과제 요구 ②: 찾아서 바꾸고 파일에 쓰기</span></summary>
+    <div class="body">
+      <div class="scroll"><pre><span class="k">for</span> (i = 0; i + len &lt;= rodata-&gt;sh_size; i++) {     <span class="c">// .rodata 범위 안에서만 검색</span>
+    <span class="k">if</span> (memcmp(&amp;section[i], TARGET_STR, len) != 0) <span class="k">continue</span>;
+    memcpy(&amp;section[i], REPLACE_STR, len);             <span class="c">// 메모리 버퍼 수정</span>
+    pwrite(fd, &amp;section[i], len, rodata-&gt;sh_offset + i); <span class="c">// 파일의 같은 위치에 기록</span>
+    count++;
+    i += len - 1;                                      <span class="c">// 바꾼 부분은 건너뜀</span>
+}</pre></div>
+      <ul>
+        <li><strong>왜 <code>strstr</code>이 아니라 <code>memcmp</code>?</strong> .rodata에는 <code>\0</code>이 섞여 있습니다(앞의 <code>01 00 02 00</code>처럼). <code>strstr</code>은 첫 <code>\0</code>에서 멈춰 그 뒤를 못 찾습니다.</li>
+        <li><strong>왜 파일 전체가 아니라 .rodata만?</strong> 과제가 .rodata 수정이고, <code>.symtab</code>이나 <code>.comment</code>에 같은 바이트열이 있어도 건드리면 안 됩니다.</li>
+        <li><strong>파일 오프셋</strong> = <code>sh_offset + i</code>. <code>sh_addr</code>(실행 시 가상주소)가 아니라 <code>sh_offset</code>(파일 위치)을 써야 합니다. 이 파일은 둘이 0x2000으로 같지만 일반적으로는 다릅니다(.data는 addr 0x4000, offset 0x3000).</li>
+        <li><strong><code>pwrite</code></strong>는 <code>lseek + write</code>를 한 번에 하는 시스템 콜이며 파일 위치를 바꾸지 않습니다. 바뀐 8바이트만 씁니다.</li>
+      </ul>
+    </div>
+  </details>
+
+  <details class="code">
+    <summary><span class="fn">Makefile</span><span class="s">학번 이름 실행 파일 생성</span></summary>
+    <div class="body">
+      <div class="scroll"><pre>CC=gcc
+CFLAGS=-Wall
+TARGET=20221787
+OBJ=20221787.o
+
+$(TARGET): $(OBJ)              <span class="c"># 첫 타깃 = make만 쳤을 때 만들어지는 것</span>
+	$(CC) -o $@ $^             <span class="c"># $@ = 타깃 이름, $^ = 모든 의존 파일</span>
+
+%.o: %.c 20221787.h            <span class="c"># 패턴 규칙: 헤더가 바뀌어도 다시 컴파일</span>
+	$(CC) $(CFLAGS) -c -o $@ $&lt;  <span class="c"># $&lt; = 첫 번째 의존 파일</span>
+
+clean:
+	rm -f *.o $(TARGET)        <span class="c"># -f: 파일이 없어도 에러 없이</span></pre></div>
+      <p>원본 editro Makefile은 <code>rm *.o</code>를 두 줄로 써서, .o가 없으면 첫 줄에서 실패해 실행 파일이 안 지워졌습니다.</p>
+    </div>
+  </details>
+
+  <div class="callout"><span class="k">원본 editro의 숨은 버그</span>
+    <p>슬라이드 예시 화면의 <code>Size = 0x00000033</code>은 사실 16진수가 아닙니다. editro는 <code>"0x%08ld"</code>로 <strong>10진수</strong>를 찍고 앞에 <code>0x</code>만 붙였습니다. 실제 크기는 33바이트 = <strong>0x21</strong>이고, <code>readelf -S</code>도 0x21이라고 합니다. 제 코드는 <code>%08lX</code>로 고쳤습니다.</p>
+  </div>
+</section>
+
+<section id="memory">
+  <h2><span class="n">07</span>섹션 vs 세그먼트: 왜 파일은 고칠 수 있고 실행 중엔 못 고치나</h2>
+  <p>링커는 <strong>섹션</strong> 단위로 보고, 로더(<code>execve</code>)는 <strong>세그먼트</strong>(프로그램 헤더의 LOAD 항목) 단위로 메모리에 올립니다. <code>readelf -l test</code>의 LOAD 세그먼트는 네 개입니다.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>파일 오프셋</th><th>권한</th><th>들어 있는 섹션</th></tr></thead>
+    <tbody>
+      <tr><td><code>0x0000</code></td><td><code>R</code></td><td>ELF 헤더, .interp, .dynsym, .rela.* …</td></tr>
+      <tr><td><code>0x1000</code></td><td><code>R E</code></td><td>.init .plt .text .fini (코드)</td></tr>
+      <tr><td><code>0x2000</code></td><td><code>R</code></td><td><strong>.rodata</strong> .eh_frame_hdr .eh_frame</td></tr>
+      <tr><td><code>0x2db8</code></td><td><code>RW</code></td><td>.init_array .dynamic .got .data .bss</td></tr>
+    </tbody>
+  </table></div>
+  <p>.rodata가 들어 있는 세그먼트는 <strong>읽기 전용(R)</strong>으로 매핑됩니다. 그래서 C 코드에서 <code>char *s = "software"; s[0] = 'h';</code>를 하면 Segmentation fault가 납니다. 과제는 실행 중이 아니라 <strong>디스크의 파일</strong>을 고치므로, 다음 실행 때 로더가 바뀐 바이트를 그대로 메모리에 올립니다.</p>
+  <div class="callout"><span class="k">메모리 배치 복습 (5주차 슬라이드 22)</span>
+    <p>읽기 전용 코드 세그먼트(.init, .text, .rodata) → 읽기/쓰기 데이터 세그먼트(.data, .bss) → 힙(brk, malloc) → … → 공유 라이브러리 매핑 영역 → 사용자 스택(%rsp) → 커널 메모리.</p>
+  </div>
+</section>
+
+<section id="linking">
+  <h2><span class="n">08</span>링킹 핵심 (5주차)</h2>
+  <h3>링커가 하는 두 가지 일</h3>
+  <ol>
+    <li><strong>심볼 해석(symbol resolution)</strong>: 각 심볼 참조를 정확히 하나의 정의와 연결합니다. 정의는 어셈블러가 <code>.symtab</code>에 기록합니다.</li>
+    <li><strong>재배치(relocation)</strong>: 여러 .o의 같은 섹션을 합치고, 심볼을 최종 주소로 옮긴 뒤 모든 참조를 고칩니다. 고칠 위치는 <code>.rel.text</code>, <code>.rel.data</code>에 있습니다.</li>
+  </ol>
+  <div class="figure"><div class="scroll"><pre><span class="c"># objdump -r -d main.o (재배치 전)</span>
+ 9: bf <span class="h">00 00 00 00</span>   mov $0x0,%edi      <span class="c"># a: R_X86_64_32  array      (절대 주소)</span>
+ e: e8 <span class="h">00 00 00 00</span>   callq 13 &lt;main+0x13&gt; <span class="c"># f: R_X86_64_PC32 sum-0x4  (PC 상대)</span>
+<span class="c"># 링크 후</span>
+4004d9: bf 18 10 60 00   mov $0x601018,%edi    <span class="c"># &amp;array</span>
+4004de: e8 05 00 00 00   callq 4004e8 &lt;sum&gt;    <span class="c"># 0x4004e8 - 4 - 0x4004df = 0x05</span></pre></div>
+  <div class="cap">PC32 계산: <code>ADDR(sum) + addend(-4) - 참조 위치(0x4004df)</code>. 다음 명령어 주소(0x4004e3)로부터의 거리와 같습니다.</div></div>
+
+  <h3>섹션별 내용</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>섹션</th><th>내용</th><th>예시</th></tr></thead>
+    <tbody>
+      <tr><td><code>.text</code></td><td>기계어 코드</td><td>함수 본문</td></tr>
+      <tr><td><code>.rodata</code></td><td>읽기 전용 데이터</td><td>문자열 리터럴, switch 점프 테이블</td></tr>
+      <tr><td><code>.data</code></td><td>초기화된 전역/정적 변수</td><td><code>int array[2] = {1, 2};</code></td></tr>
+      <tr><td><code>.bss</code></td><td>초기화 안 된(0인) 전역/정적 변수. 섹션 헤더만 있고 파일 공간 0</td><td><code>int z[2];</code></td></tr>
+      <tr><td><code>.symtab</code></td><td>심볼 테이블 (함수·전역변수 이름, 위치)</td><td><code>main</code>, <code>sum</code></td></tr>
+      <tr><td><code>.rel.text</code></td><td>.text에서 고쳐야 할 주소 목록</td><td>call sum의 피연산자</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>심볼 종류와 강/약 규칙</h3>
+  <ul>
+    <li><strong>전역 심볼</strong>: 모듈이 정의하고 다른 모듈이 참조 가능 (static 아닌 함수/전역변수). <strong>외부 심볼</strong>: 참조하지만 다른 곳에서 정의. <strong>지역 심볼</strong>: <code>static</code> 함수/전역변수. 함수 안의 일반 지역변수는 스택에 있으므로 링커 심볼이 아닙니다.</li>
+    <li>함수 안 <code>static int x</code>는 .data/.bss에 들어가고, 이름 충돌을 막으려 <code>x.1</code>, <code>x.2</code>처럼 고유한 지역 심볼이 됩니다.</li>
+    <li><strong>강한 심볼</strong> = 함수, 초기화된 전역. <strong>약한 심볼</strong> = 초기화 안 된 전역.</li>
+    <li>규칙 1: 강한 심볼 여러 개 → 링크 에러. 규칙 2: 강 1 + 약 여러 개 → 강한 것 선택. 규칙 3: 약한 것만 여러 개 → 임의 선택 (<code>-fno-common</code>으로 막음).</li>
+    <li>함정: <code>int x; int y;</code>(p1.c)와 <code>double x;</code>(p2.c) → p2에서 x에 8바이트를 쓰면 y까지 덮어씁니다.</li>
+  </ul>
+
+  <h3>라이브러리</h3>
+  <ul>
+    <li><strong>정적 라이브러리(.a)</strong>: .o 묶음 + 인덱스(<code>ar rs libc.a ...</code>). 필요한 .o만 실행 파일에 복사. 링커는 명령행 순서로 스캔하며 미해결 참조 목록을 유지하므로 <strong>라이브러리는 명령행 끝에</strong> 둡니다.</li>
+    <li><strong>공유 라이브러리(.so)</strong>: 로드 시(<code>ld-linux.so</code>가 처리) 또는 실행 중(<code>dlopen/dlsym/dlclose</code>) 링크. 디스크·메모리 중복 제거, 라이브러리만 업데이트 가능. 생성: <code>gcc -shared -fpic</code>.</li>
+  </ul>
+
+  <h3>라이브러리 인터포지셔닝 세 시점</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>시점</th><th>방법</th><th>핵심</th></tr></thead>
+    <tbody>
+      <tr><td>컴파일 타임</td><td><code>#define malloc(size) mymalloc(size)</code></td><td><code>-I.</code>로 내 malloc.h를 먼저 포함</td></tr>
+      <tr><td>링크 타임</td><td><code>-Wl,--wrap,malloc</code></td><td><code>malloc</code> → <code>__wrap_malloc</code>, <code>__real_malloc</code> → 진짜 <code>malloc</code></td></tr>
+      <tr><td>로드/실행 타임</td><td><code>LD_PRELOAD=./mymalloc.so</code></td><td><code>dlsym(RTLD_NEXT, "malloc")</code>로 libc의 malloc 주소 얻기</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="io">
+  <h2><span class="n">09</span>Unix I/O 핵심 (6주차)</h2>
+  <ul>
+    <li><strong>모든 것은 파일</strong>: 파일 = m바이트의 연속. 장치(<code>/dev/null</code>, <code>/dev/urandom</code>)와 커널 정보(<code>/proc</code>)도 파일로 접근.</li>
+    <li><strong>파일 디스크립터</strong>: 프로세스의 열린 파일을 나타내는 작은 정수. 0 = stdin, 1 = stdout, 2 = stderr.</li>
+    <li><strong>권한 비트</strong>: <code>rwxrwxrwx</code> = 소유자/그룹/기타. 8진수 <code>750</code> = <code>rwxr-x---</code>, <code>664</code> = <code>rw-rw-r--</code>.</li>
+    <li><strong>시스템 콜 실패</strong> 시 음수 반환 + <code>errno</code> 설정. <code>perror("open")</code> → <code>open: No such file or directory</code>.</li>
+  </ul>
+  <div class="tbl"><table>
+    <thead><tr><th>Unix I/O (POSIX, 시스템 콜)</th><th>표준 I/O (C 표준, 버퍼링)</th></tr></thead>
+    <tbody>
+      <tr><td><code>open / close</code></td><td><code>fopen / fclose / fdopen(fd 감싸기)</code></td></tr>
+      <tr><td><code>read / write</code>: 반환 0=EOF, &gt;0=바이트 수, &lt;0=에러</td><td><code>fread / fwrite</code>: 항목 수 반환, 에러와 EOF 모두 0 → <code>feof / ferror</code>로 구분</td></tr>
+      <tr><td><code>lseek</code>: 현재 파일 위치 변경</td><td><code>fseek</code></td></tr>
+      <tr><td>호출마다 커널 진입(비용 큼)</td><td>버퍼에 모았다가 한 번에 <code>write</code>. <code>\n</code>, <code>fflush</code>, <code>exit</code>, main 리턴 때 비움</td></tr>
+    </tbody>
+  </table></div>
+  <div class="tbl"><table>
+    <thead><tr><th>open 플래그</th><th>뜻</th><th>fopen 모드</th><th>뜻</th></tr></thead>
+    <tbody>
+      <tr><td><code>O_RDONLY</code></td><td>읽기 전용</td><td><code>"r"</code></td><td>읽기</td></tr>
+      <tr><td><code>O_WRONLY</code></td><td>쓰기 전용</td><td><code>"w"</code></td><td>쓰기, <strong>0바이트로 자름</strong></td></tr>
+      <tr><td><code>O_RDWR</code></td><td>읽기·쓰기 (과제에서 사용)</td><td><code>"a"</code></td><td>끝에 덧붙이기</td></tr>
+      <tr><td><code>O_CREAT|O_EXCL</code></td><td>없을 때만 생성(원자적) → 락 파일</td><td><code>"r+"</code></td><td>읽기·쓰기, 자르지 않음 (과제에 fopen을 쓴다면 이것)</td></tr>
+      <tr><td><code>O_TRUNC</code></td><td>0바이트로 자름</td><td><code>"w+"</code></td><td>읽기·쓰기, 자름</td></tr>
+      <tr><td><code>O_APPEND</code></td><td>항상 끝에 쓰기</td><td><code>"rb"</code></td><td>POSIX에선 b 무시</td></tr>
+    </tbody>
+  </table></div>
+  <p><code>creat(path, mode)</code>는 <code>open(path, O_CREAT|O_WRONLY|O_TRUNC, mode)</code>와 같습니다. <code>printf("h"); ... printf("\n");</code>를 여섯 번 불러도 <code>strace</code>에는 <code>write(1, "hello\n", 6)</code> 한 번만 보입니다(버퍼링).</p>
+</section>
+
+<section id="traps">
+  <h2><span class="n">10</span>시험 함정 모음</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>헷갈리는 것</th><th>정답</th></tr></thead>
+    <tbody>
+      <tr><td><code>sh_offset</code> vs <code>sh_addr</code></td><td>offset = 파일 안 위치(파일 수정에 사용), addr = 실행 시 가상주소</td></tr>
+      <tr><td><code>sh_name</code>에 든 것</td><td>이름 문자열이 아니라 .shstrtab 안의 오프셋</td></tr>
+      <tr><td>섹션 헤더 테이블 vs 프로그램 헤더 테이블</td><td>섹션 = 링크용(.o 필수), 프로그램(세그먼트) = 실행용(실행 파일 필수)</td></tr>
+      <tr><td>.bss의 파일 크기</td><td>0. 섹션 헤더만 있고 공간 차지 안 함 ("Better Save Space")</td></tr>
+      <tr><td>지역변수 <code>int i</code>는 링커 심볼?</td><td>아님. 스택에 있음. 함수 안 <code>static</code> 변수는 심볼(.data/.bss)</td></tr>
+      <tr><td><code>int x;</code>는 강/약?</td><td>약 (초기화 안 된 전역). <code>int x = 7;</code>과 함수는 강</td></tr>
+      <tr><td>e_ident[EI_CLASS] = 2, EI_DATA = 1</td><td>ELF64, 리틀 엔디언</td></tr>
+      <tr><td><code>e_type</code> = 3</td><td>ET_DYN. PIE 실행 파일도 3 (공유 오브젝트와 같은 값). 2 = ET_EXEC, 1 = ET_REL(.o)</td></tr>
+      <tr><td><code>fopen(path, "w")</code>로 ELF 열기</td><td>열자마자 0바이트로 잘려 실행 파일이 망가짐</td></tr>
+      <tr><td>read가 요청보다 적게 반환</td><td>에러가 아님(short count). 반복해서 읽어야 함</td></tr>
+      <tr><td>printf 문자열의 <code>\n</code>이 .rodata에 없음</td><td>gcc가 <code>printf("...\n")</code>를 <code>puts("...")</code>로 최적화</td></tr>
+      <tr><td><code>gcc main.o -lvector</code> vs <code>gcc -lvector main.o</code></td><td>뒤의 것은 실패할 수 있음. 라이브러리는 참조하는 .o 뒤에</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="quiz">
+  <h2><span class="n">11</span>확인 문제</h2>
+  <div class="quiz-head">
+    <span class="score" id="score">0 / 0 맞음</span>
+    <button class="btn ghost" id="quizReset" type="button">기록 지우기</button>
+  </div>
+  <p style="color:var(--muted);font-size:14px;margin-top:0">머릿속으로 답한 뒤 "답 보기"를 누르고, 맞았는지 스스로 표시하세요. 표시는 이 브라우저에만 저장됩니다.</p>
+  <div class="quiz" id="quizList"></div>
+</section>
+
+<footer>과제 #2 (20221787) 학습용 정리 · 바이트 값은 과제 배포 파일 <code>06-editro.zip</code>의 <code>test</code>에서 측정 · 강의: 한승훈 교수님 시스템프로그래밍 5·6주차</footer>
+</main>
+</div>
+
+<script>
+(function () {
+  // ---------- ELF header hex viewer ----------
+  var hdrBytes = "7f454c46020101000000000000000000 03003e00010000006010000000000000 40000000000000009836000000000000 00000000400038000d0040001f001e00".replace(/ /g, "");
+  var HB = [];
+  for (var i = 0; i < hdrBytes.length; i += 2) HB.push(parseInt(hdrBytes.substr(i, 2), 16));
+
+  var fields = [
+    { o: 0, n: 4, name: "e_ident[0..3] 매직 넘버", c: "f1", val: "7F 'E' 'L' 'F'", why: "이 4바이트가 다르면 ELF가 아닙니다. 과제의 is_elf()가 memcmp(e_ident, ELFMAG, SELFMAG)로 확인하는 부분입니다." },
+    { o: 4, n: 1, name: "e_ident[EI_CLASS]", c: "f2", val: "2 = ELFCLASS64", why: "1이면 32비트(Elf32_*), 2면 64비트(Elf64_*). 이 값에 따라 구조체 크기가 달라집니다." },
+    { o: 5, n: 1, name: "e_ident[EI_DATA]", c: "f3", val: "1 = ELFDATA2LSB", why: "2의 보수, 리틀 엔디언. 이후 모든 다바이트 필드를 뒤에서부터 읽어야 한다는 뜻입니다." },
+    { o: 6, n: 1, name: "e_ident[EI_VERSION]", c: "f4", val: "1 = EV_CURRENT", why: "ELF 버전. 항상 1입니다." },
+    { o: 7, n: 1, name: "e_ident[EI_OSABI]", c: "f5", val: "0 = System V", why: "대상 OS ABI. 리눅스 바이너리도 대부분 0입니다." },
+    { o: 8, n: 8, name: "e_ident[8..15] 패딩", c: "f6", val: "0 (ABI 버전 + 예약)", why: "e_ident는 총 16바이트(EI_NIDENT). 나머지는 0으로 채웁니다." },
+    { o: 16, n: 2, name: "e_type", c: "f1", val: "3 = ET_DYN", why: "PIE 실행 파일이라 공유 오브젝트와 같은 3입니다. .o는 1(ET_REL), 비-PIE 실행 파일은 2(ET_EXEC)." },
+    { o: 18, n: 2, name: "e_machine", c: "f2", val: "0x3E = EM_X86_64", why: "editro가 'AMD X86-64'를 출력하는 근거입니다." },
+    { o: 20, n: 4, name: "e_version", c: "f3", val: "1", why: "e_ident의 버전과 같은 값입니다." },
+    { o: 24, n: 8, name: "e_entry", c: "f4", val: "0x1060", why: "프로그램 시작 주소(_start). .text 섹션의 시작과 같습니다. main(0x1149)이 아닙니다!" },
+    { o: 32, n: 8, name: "e_phoff", c: "f5", val: "0x40 = 64", why: "프로그램 헤더 테이블 위치. ELF 헤더 바로 뒤입니다." },
+    { o: 40, n: 8, name: "e_shoff", c: "f6", val: "0x3698", why: "섹션 헤더 테이블 위치. 과제에서 .rodata를 찾는 출발점입니다: sht = buffer + e_shoff." },
+    { o: 48, n: 4, name: "e_flags", c: "f1", val: "0", why: "프로세서별 플래그. x86-64에서는 0입니다." },
+    { o: 52, n: 2, name: "e_ehsize", c: "f2", val: "64", why: "ELF 헤더 자신의 크기 = sizeof(Elf64_Ehdr)." },
+    { o: 54, n: 2, name: "e_phentsize", c: "f3", val: "56", why: "프로그램 헤더 항목 하나의 크기 = sizeof(Elf64_Phdr)." },
+    { o: 56, n: 2, name: "e_phnum", c: "f4", val: "13", why: "프로그램 헤더(세그먼트) 개수." },
+    { o: 58, n: 2, name: "e_shentsize", c: "f5", val: "64", why: "섹션 헤더 항목 하나의 크기 = sizeof(Elf64_Shdr)." },
+    { o: 60, n: 2, name: "e_shnum", c: "f6", val: "31", why: "섹션 개수. editro의 'Section count : 31'." },
+    { o: 62, n: 2, name: "e_shstrndx", c: "f1", val: "30", why: "섹션 이름 테이블(.shstrtab)이 30번 섹션이라는 뜻. 섹션 이름을 읽으려면 이 값이 필요합니다." }
+  ];
+  var fieldOf = [];
+  fields.forEach(function (f, idx) { for (var k = 0; k < f.n; k++) fieldOf[f.o + k] = idx; });
+
+  function hx(n) { return (n < 16 ? "0" : "") + n.toString(16).toUpperCase(); }
+  function asc(n) { return n >= 32 && n < 127 ? String.fromCharCode(n) : "."; }
+
+  var hdrHex = document.getElementById("hdrHex");
+  var hdrPanel = document.getElementById("hdrPanel");
+  var hdrBtns = [];
+  for (var r = 0; r < 4; r++) {
+    var line = document.createElement("div"); line.className = "line";
+    var a = document.createElement("span"); a.className = "addr"; a.textContent = "00" + hx(r * 16); line.appendChild(a);
+    var s = "";
+    for (var c = 0; c < 16; c++) {
+      var off = r * 16 + c, b = document.createElement("button");
+      b.type = "button"; b.className = "b"; b.textContent = hx(HB[off]);
+      b.style.background = "var(--" + fields[fieldOf[off]].c + ")";
+      b.setAttribute("aria-label", "오프셋 " + off + ", " + fields[fieldOf[off]].name);
+      b.dataset.f = fieldOf[off];
+      b.addEventListener("click", function () { showField(+this.dataset.f); });
+      hdrBtns.push(b); line.appendChild(b); s += asc(HB[off]);
+    }
+    var t = document.createElement("span"); t.className = "asc"; t.textContent = s; line.appendChild(t);
+    hdrHex.appendChild(line);
+  }
+  function showField(idx) {
+    var f = fields[idx], raw = [], le = "";
+    for (var k = 0; k < f.n; k++) raw.push(hx(HB[f.o + k]));
+    for (var k2 = f.n - 1; k2 >= 0; k2--) le += hx(HB[f.o + k2]);
+    hdrBtns.forEach(function (b) { b.classList.toggle("sel", +b.dataset.f === idx); });
+    hdrPanel.innerHTML = "";
+    var parts = [
+      ["fname", f.name],
+      ["kv", "오프셋 <b>0x" + hx(f.o) + "</b> · 크기 <b>" + f.n + " B</b>"],
+      ["kv", "파일 바이트 <b>" + raw.join(" ") + "</b>"],
+      ["kv", "리틀 엔디언 해석 <b>0x" + le.replace(/^0+(?=.)/, "") + "</b>"],
+      ["kv", "의미 <b>" + f.val + "</b>"],
+      ["why", f.why]
+    ];
+    parts.forEach(function (p) { var d = document.createElement("div"); d.className = p[0]; d.innerHTML = p[1]; hdrPanel.appendChild(d); });
+  }
+  showField(11);
+
+  // ---------- .rodata patch simulator ----------
+  var roOrig = "010002004865 6c6c6f20746865207363686f6f6c206f6620736f66747761726500".replace(/ /g, "");
+  var RO = [];
+  for (var j = 0; j < roOrig.length; j += 2) RO.push(parseInt(roOrig.substr(j, 2), 16));
+  var ORIG = RO.slice();
+  var roHex = document.getElementById("roHex"), roOut = document.getElementById("roOut");
+  function renderRo(patched) {
+    roHex.innerHTML = "";
+    for (var r = 0; r * 16 < RO.length; r++) {
+      var line = document.createElement("div"); line.className = "line";
+      var a = document.createElement("span"); a.className = "addr"; a.textContent = (0x2000 + r * 16).toString(16); line.appendChild(a);
+      var s = "";
+      for (var c = 0; c < 16; c++) {
+        var off = r * 16 + c, b = document.createElement("span");
+        b.className = "b";
+        if (off < RO.length) {
+          b.textContent = hx(RO[off]); s += asc(RO[off]);
+          if (off >= 0x18 && off < 0x20) b.classList.add(patched ? "swap" : "sel");
+        }
+        line.appendChild(b);
+      }
+      var t = document.createElement("span"); t.className = "asc"; t.textContent = s; line.appendChild(t);
+      roHex.appendChild(line);
+    }
+    var str = ""; for (var k = 4; k < RO.length - 1; k++) str += String.fromCharCode(RO[k]);
+    roOut.innerHTML = '<span class="prompt">$ ./test</span><br>' + str.replace(patched ? "hackers!" : "\u0000", patched ? '<span style="background:var(--hl);color:var(--hl-ink)">hackers!</span>' : "");
+  }
+  document.getElementById("patchBtn").addEventListener("click", function () {
+    var rep = "hackers!"; for (var k = 0; k < 8; k++) RO[0x18 + k] = rep.charCodeAt(k); renderRo(true);
+  });
+  document.getElementById("resetBtn").addEventListener("click", function () { RO = ORIG.slice(); renderRo(false); });
+  renderRo(false);
+
+  // ---------- Quiz ----------
+  var Q = [
+    ["ELF", "ELF 매직 넘버 4바이트를 16진수와 문자로 쓰면?", "<code>7F 45 4C 46</code> = <code>0x7F 'E' 'L' 'F'</code>. <code>&lt;elf.h&gt;</code>의 <code>ELFMAG</code>(\"\\177ELF\"), <code>SELFMAG</code>(4)."],
+    ["ELF", "ELF 헤더에서 섹션 헤더 테이블의 위치와 개수, 이름 테이블 번호를 알려 주는 필드 세 개는?", "<code>e_shoff</code>(위치), <code>e_shnum</code>(개수), <code>e_shstrndx</code>(.shstrtab의 섹션 번호). 항목 크기는 <code>e_shentsize</code>(64)."],
+    ["ELF", "섹션 헤더의 <code>sh_name</code>에는 무엇이 들어 있나? 실제 이름은 어디서 읽나?", ".shstrtab 섹션 안에서의 <strong>오프셋</strong>(정수). 이름 = <code>buffer + sht[e_shstrndx].sh_offset + sh_name</code> 위치의 문자열."],
+    ["과제", "test에서 \"software\"의 파일 오프셋은 어떻게 계산되나? 값은?", "<code>.rodata의 sh_offset + 섹션 안 위치</code> = 0x2000 + 0x18 = <strong>0x2018</strong>. 섹션 앞 4바이트는 <code>_IO_stdin_used</code>(01 00 02 00)."],
+    ["과제", "\"software\"를 \"hackers!\"로 바꿔도 다른 섹션 위치가 안 바뀌는 이유는?", "두 문자열 모두 8바이트라서 같은 자리에 덮어쓰기만 하면 됩니다. 파일 크기, 오프셋, 코드의 RIP 상대 주소 모두 그대로입니다."],
+    ["과제", "\"hackers!\"를 <code>sizeof</code>로 9바이트 쓰면 생기는 문제는?", "<code>\\0</code>까지 써서, \"software\" 뒤에 글자가 이어지는 문자열(\"software engineering\")이 <code>\"hackers!\"</code>에서 잘립니다."],
+    ["과제", ".rodata에서 \"software\"를 찾을 때 <code>strstr</code>이 부적합한 이유는?", ".rodata에는 <code>\\0</code>이 섞여 있어(맨 앞 <code>01 00 ...</code>) strstr이 첫 NUL에서 멈춥니다. 바이트 단위 <code>memcmp</code>로 섹션 크기만큼 검색해야 합니다."],
+    ["과제", "실행 중인 프로그램이 문자열 리터럴을 직접 수정하면? 과제 방식은 왜 되나?", ".rodata는 읽기 전용(R) LOAD 세그먼트로 매핑돼 Segmentation fault. 과제는 디스크의 파일을 고치므로 다음 실행 때 로더가 바뀐 내용을 올립니다."],
+    ["ELF", "<code>sh_offset</code>과 <code>sh_addr</code>의 차이는? test의 .data 값은?", "sh_offset = 파일 안 위치, sh_addr = 실행 시 가상주소. .data는 offset 0x3000, addr 0x4000으로 다릅니다."],
+    ["ELF", "섹션 헤더 테이블과 프로그램 헤더 테이블은 각각 누가 쓰나?", "섹션 헤더 = 링커(재배치 파일에 필수). 프로그램 헤더(세그먼트) = 로더(실행 파일에 필수)."],
+    ["ELF", "test의 <code>e_entry</code>는 0x1060. main 주소와 같은가?", "아닙니다. e_entry는 <code>_start</code>(.text 시작)이고, main은 0x1149. _start가 libc 초기화 후 main을 부릅니다."],
+    ["ELF", "<code>e_type</code>이 3(ET_DYN)인데 실행 파일인 이유는?", "PIE(위치 독립 실행 파일)는 공유 오브젝트처럼 아무 주소에나 로드되도록 ET_DYN으로 표시됩니다. <code>file</code> 명령은 \"pie executable\"로 표시."],
+    ["링킹", "링커가 하는 두 단계는?", "① 심볼 해석: 각 참조를 정확히 하나의 정의에 연결. ② 재배치: 섹션 병합, 심볼에 최종 주소 부여, 모든 참조 수정(.rel.text/.rel.data 이용)."],
+    ["링킹", "강한 심볼과 약한 심볼, 그리고 링커 규칙 세 가지는?", "강 = 함수, 초기화된 전역 / 약 = 초기화 안 된 전역. ① 강 여러 개 → 에러 ② 강 1 + 약 → 강 선택 ③ 약만 여러 개 → 임의 선택."],
+    ["링킹", "p1.c: <code>int x=7; int y=5;</code>, p2.c: <code>double x;</code> → p2에서 <code>x = 3.14</code>를 하면?", "x는 p1의 강한 정의(4바이트)로 해석되는데 p2는 8바이트 double로 써서 <strong>y까지 덮어씁니다</strong>."],
+    ["링킹", "함수 안 <code>int i</code>와 <code>static int x</code>는 각각 어디에 저장되고 링커 심볼인가?", "<code>int i</code>: 스택, 링커 심볼 아님. <code>static int x</code>: .data(초기화) 또는 .bss, 지역 링커 심볼(x.1 처럼 고유 이름)."],
+    ["링킹", "<code>R_X86_64_PC32 sum-0x4</code>에서 참조 위치 0x4004df, sum이 0x4004e8이면 채워질 값은?", "0x4004e8 + (-4) - 0x4004df = <strong>0x5</strong>. 다음 명령어(0x4004e3)에서 sum까지의 거리."],
+    ["링킹", "정적 라이브러리를 명령행 맨 앞에 두면 왜 실패할 수 있나?", "링커는 왼쪽부터 스캔하며 그 시점의 미해결 참조만 아카이브에서 찾습니다. 아직 참조가 없으면 아무것도 안 가져와서, 뒤의 .o가 참조할 때 미해결 에러."],
+    ["링킹", "인터포지셔닝 세 시점과 각 방법은?", "컴파일: <code>#define malloc mymalloc</code> / 링크: <code>-Wl,--wrap,malloc</code> (__wrap_, __real_) / 로드·실행: <code>LD_PRELOAD</code> + <code>dlsym(RTLD_NEXT, \"malloc\")</code>."],
+    ["I/O", "<code>read()</code> 반환값 세 경우와, 요청보다 적게 읽혔을 때 해야 할 일은?", "0 = EOF, &gt;0 = 읽은 바이트 수, &lt;0 = 에러(errno 설정). 적게 읽힌 건 에러가 아니므로(short count) 남은 만큼 반복해서 읽습니다."],
+    ["I/O", "과제 파일을 <code>fopen(path, \"w\")</code>로 열면 안 되는 이유는? 대신 쓸 모드는?", "\"w\"는 열자마자 파일을 0바이트로 자릅니다. <code>\"r+\"</code>(또는 <code>\"r+b\"</code>)나 <code>open(path, O_RDWR)</code>를 써야 합니다."],
+    ["I/O", "fread의 반환값이 0일 때 EOF인지 에러인지 어떻게 구분하나?", "<code>feof(fp)</code>와 <code>ferror(fp)</code>로 확인. <code>clearerr</code>로 상태 초기화."],
+    ["I/O", "<code>printf</code>를 6번 불렀는데 strace에 write가 한 번만 보이는 이유와, 버퍼가 비워지는 때는?", "표준 I/O 버퍼링. <code>\\n</code>(터미널), <code>fflush</code>, <code>exit</code>, main 리턴 때 비워집니다. 시스템 콜 비용을 줄이려는 것."],
+    ["I/O", "8진수 권한 <code>750</code>, <code>664</code>를 rwx로 쓰면?", "750 = <code>rwxr-x---</code>, 664 = <code>rw-rw-r--</code>."],
+    ["I/O", "<code>O_CREAT|O_EXCL</code>을 같이 쓰면 무엇이 보장되고 어디에 쓰나?", "파일이 없을 때만 생성하는 동작이 원자적(atomic)으로 일어남. 여러 프로세스가 이 파일을 락으로 사용."]
+  ];
+  var KEY = "elf-note-quiz-v1", state = {};
+  try { state = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { state = {}; }
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  var list = document.getElementById("quizList"), scoreEl = document.getElementById("score");
+  function updateScore() {
+    var ok = 0, tot = 0;
+    for (var k in state) { tot++; if (state[k] === "ok") ok++; }
+    scoreEl.textContent = ok + " / " + tot + " 맞음 · 전체 " + Q.length + "문제";
+  }
+  Q.forEach(function (q, idx) {
+    var box = document.createElement("div"); box.className = "q";
+    box.innerHTML = '<div class="qt"><span class="qn">Q' + (idx + 1) + '</span><span>' + q[1] + ' <span class="tag">' + q[0] + '</span></span></div>' +
+      '<div class="ans" hidden>' + q[2] + '</div>' +
+      '<div class="acts"><button type="button" class="show" aria-expanded="false">답 보기</button>' +
+      '<button type="button" class="ok" aria-pressed="false" hidden>맞았음</button>' +
+      '<button type="button" class="no" aria-pressed="false" hidden>틀렸음</button></div>';
+    var ans = box.querySelector(".ans"), show = box.querySelector(".show"), ok = box.querySelector(".ok"), no = box.querySelector(".no");
+    function paint() {
+      var v = state[idx];
+      ok.setAttribute("aria-pressed", v === "ok"); no.setAttribute("aria-pressed", v === "no");
+      box.classList.toggle("done-ok", v === "ok"); box.classList.toggle("done-no", v === "no");
+    }
+    show.addEventListener("click", function () {
+      var open = ans.hidden; ans.hidden = !open; ok.hidden = !open; no.hidden = !open;
+      show.textContent = open ? "답 숨기기" : "답 보기"; show.setAttribute("aria-expanded", open);
+    });
+    ok.addEventListener("click", function () { state[idx] = "ok"; save(); paint(); updateScore(); });
+    no.addEventListener("click", function () { state[idx] = "no"; save(); paint(); updateScore(); });
+    box._paint = paint; paint();
+    list.appendChild(box);
+  });
+  document.getElementById("quizReset").addEventListener("click", function () {
+    state = {}; save(); Array.prototype.forEach.call(list.children, function (b) { b._paint(); }); updateScore();
+  });
+  updateScore();
+})();
+</script>
